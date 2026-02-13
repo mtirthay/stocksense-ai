@@ -17,10 +17,26 @@ if st.button("Get data"):
             data = yf.download(ticker.strip(), period=period)
             if data.empty:
                 st.error("No data returned. Check the ticker symbol.")
-            else:
+                        else:
+                # Basic stats
+                last_close = data["Close"].iloc[-1]
+                high_52w = data["High"].rolling(window=252).max().iloc[-1]
+                low_52w = data["Low"].rolling(window=252).min().iloc[-1]
+
+                # Moving averages
+                data["MA20"] = data["Close"].rolling(window=20).mean()
+                data["MA50"] = data["Close"].rolling(window=50).mean()
+
                 st.subheader(f"Closing prices for {ticker.upper()} ({period})")
-                st.line_chart(data["Close"])
-                st.subheader("Raw data")
+                st.line_chart(data[["Close", "MA20", "MA50"]])
+
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Last close", f"{last_close:,.2f}")
+                col2.metric("Approx 52‑week high", f"{high_52w:,.2f}")
+                col3.metric("Approx 52‑week low", f"{low_52w:,.2f}")
+
+                st.subheader("Recent data")
                 st.dataframe(data.tail(10))
+
         except Exception as e:
             st.error(f"Error fetching data: {e}")

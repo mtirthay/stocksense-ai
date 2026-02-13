@@ -5,10 +5,12 @@ import pandas as pd
 def login_screen():
     st.title("StockSense AI")
     st.write("Please log in with Google to continue.")
-    st.button("Log in with Google", on_click=st.login)
+    if st.button("Log in with Google"):
+        st.login("google")  # triggers Google OAuth defined in secrets.toml
 
-def main_app():
+def main_app(user_name: str):
     st.title("StockSense AI")
+    st.sidebar.write(f"Logged in as {user_name}")
 
     st.write("Enter a stock ticker to see recent price data.")
 
@@ -52,9 +54,13 @@ def main_app():
             except Exception as e:
                 st.error(f"Error fetching data: {e}")
 
-# Authentication entry point
-if not st.user.is_logged_in:
-    login_screen()
+# --- Auth handling ---
+
+# Safely get user info if available
+user_name = getattr(st.session_state, "user_name", None)
+
+if user_name:
+    # Already logged in in this session
+    main_app(user_name)
 else:
-    st.sidebar.write(f"Logged in as {st.user.name}")
-    main_app()
+    login_screen()

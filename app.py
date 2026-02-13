@@ -17,7 +17,7 @@ if st.button("Get data"):
             data = yf.download(ticker.strip(), period=period)
             if data.empty:
                 st.error("No data returned. Check the ticker symbol.")
-                        else:
+            else:
                 # Basic stats
                 last_close = data["Close"].iloc[-1]
                 high_52w = data["High"].rolling(window=252).max().iloc[-1]
@@ -37,6 +37,6 @@ if st.button("Get data"):
 
                 st.subheader("Recent data")
                 st.dataframe(data.tail(10))
-
         except Exception as e:
             st.error(f"Error fetching data: {e}")
+     

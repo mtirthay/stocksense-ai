@@ -15,6 +15,11 @@ if st.button("Get data"):
     else:
         try:
             data = yf.download(ticker.strip(), period=period)
+
+            # If yfinance returns multi-level columns, take only the first level
+            if isinstance(data.columns, pd.MultiIndex):
+                data.columns = [c[0] for c in data.columns]
+
             if data.empty:
                 st.error("No data returned. Check the ticker symbol.")
             else:
@@ -23,12 +28,14 @@ if st.button("Get data"):
                 high_52w = data["High"].rolling(window=252).max().iloc[-1]
                 low_52w = data["Low"].rolling(window=252).min().iloc[-1]
 
-                # Moving averages
+                # Moving averages (on Close)
                 data["MA20"] = data["Close"].rolling(window=20).mean()
                 data["MA50"] = data["Close"].rolling(window=50).mean()
 
                 st.subheader(f"Closing prices for {ticker.upper()} ({period})")
-                st.line_chart(data[["Close", "MA20", "MA50"]])
+                # Plot only existing columns to avoid key errors
+                plot_cols = [col for col in ["Close", "MA20", "MA50"] if col in data.columns]
+                st.line_chart(data[plot_cols])
 
                 col1, col2, col3 = st.columns(3)
                 col1.metric("Last close", f"{last_close:,.2f}")
@@ -39,4 +46,3 @@ if st.button("Get data"):
                 st.dataframe(data.tail(10))
         except Exception as e:
             st.error(f"Error fetching data: {e}")
-     

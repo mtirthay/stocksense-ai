@@ -15,6 +15,9 @@ st.set_page_config(
     layout="wide",
 )
 
+# Debug: show which secret sections are available
+st.write("Secrets sections:", list(st.secrets.keys()))
+
 # ---------------- Session init ----------------
 
 if "favourites" not in st.session_state:
@@ -117,7 +120,7 @@ def fetch_yahoo_data(ticker: str, period: str) -> pd.DataFrame:
 
 
 def fetch_alpha_vantage_data(ticker: str, period: str, api_key: str) -> pd.DataFrame:
-    # Approx days for each period, based on trading days per year. [web:418]
+    # Approx days for each period (trading days). [web:418]
     period_to_days = {
         "1mo": 22,
         "3mo": 66,
@@ -190,11 +193,11 @@ def get_best_price_data(ticker: str, period: str) -> tuple[pd.DataFrame, str]:
     raise RuntimeError("All data providers failed: " + " | ".join(errors))
 
 # ---------------- News helper (NewsAPI.org) ----------------
-# Uses NewsAPI's everything endpoint to get latest articles. [web:429][web:432]
+# Uses [newsapi].api_key from secrets. [web:429][web:432]
 
 def get_stock_news(ticker: str, max_articles: int = 5) -> list[dict]:
     try:
-        api_key = st.secrets["newsapi"]["newsapi_key"]
+        api_key = st.secrets["newsapi"]["api_key"]
     except Exception as e:
         st.caption(f"News configuration error: {e}")
         return []

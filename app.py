@@ -4,14 +4,85 @@ import pandas as pd
 import numpy as np
 import requests
 
-# ---------------- Helper functions ----------------
+# ---------------- Session init ----------------
+
+if "favourites" not in st.session_state:
+    st.session_state["favourites"] = []
+if "ticker_prefill" not in st.session_state:
+    st.session_state["ticker_prefill"] = "AAPL"
+
+# ---------------- US ticker strip ----------------
+
+def get_us_watchlist_prices(symbols: list[str]) -> pd.DataFrame:
+    """
+    Fetch latest daily close for a small list of US tickers using yfinance.
+    """
+    if not symbols:
+        return pd.DataFrame()
+
+    tickers_data = yf.download(
+        " ".join(symbols),
+        period="5d",
+        interval="1d",
+        group_by="ticker",
+        auto_adjust=False,
+        progress=False,
+    )
+
+    rows = []
+    for symbol in symbols:
+        try:
+            if isinstance(tickers_data.columns, pd.MultiIndex):
+                df = tickers_data[symbol]
+            else:
+                df = tickers_data
+            last_row = df.iloc[-1]
+            prev_row = df.iloc[-2] if len(df) > 1 else df.iloc[-1]
+            last_price = float(last_row["Close"])
+            prev_price = float(prev_row["Close"])
+            change = last_price - prev_price
+            pct = (change / prev_price) * 100 if prev_price != 0 else 0.0
+            rows.append(
+                {
+                    "symbol": symbol,
+                    "last": last_price,
+                    "change": change,
+                    "pct": pct,
+                }
+            )
+        except Exception:
+            continue
+
+    return pd.DataFrame(rows)
+
+
+def render_us_ticker_strip():
+    us_watchlist = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA"]
+    df = get_us_watchlist_prices(us_watchlist)
+    if df.empty:
+        return
+
+    cols = st.columns(len(df))
+    for col, (_, row) in zip(cols, df.iterrows()):
+        color = "green" if row["change"] >= 0 else "red"
+        with col:
+            st.markdown(f"**{row['symbol']}**")
+            st.write(f"{row['last']:,.2f}")
+            st.markdown(
+                f"<span style='color:{color};'>"
+                f"{row['change']:+.2f} ({row['pct']:+.2f}%)"
+                f"</span>",
+                unsafe_allow_html=True,
+            )
+
+# ---------------- Data helpers ----------------
 
 def fetch_yahoo_data(ticker: str, period: str) -> pd.DataFrame:
     """
     Fetch historical data from Yahoo Finance using yfinance.
     period can be '1mo', '3mo', '6mo', '1y', '5y', '10y', etc.
     """
-    data = yf.download(ticker.strip(), period=period)
+    data = yf.download(ticker.strip(), period=period, progress=False)
 
     # Flatten multi-index columns if needed
     if isinstance(data.columns, pd.MultiIndex):
@@ -107,8 +178,9 @@ def get_best_price_data(ticker: str, period: str) -> tuple[pd.DataFrame, str]:
 
     raise RuntimeError("All data providers failed: " + " | ".join(errors))
 
+# ---------------- Layout ----------------
 
-# ---------------- Main app ----------------
+render_us_ticker_strip()
 
 st.title("StockSense AI")
 
@@ -118,9 +190,23 @@ st.caption(
     "Always do your own research or consult a professional advisor."
 )
 
+# Sidebar favourites
+st.sidebar.subheader("Favourites")
+if st.session_state["favourites"]:
+    selected_fav = st.sidebar.selectbox(
+        "Quick load",
+        st.session_state["favourites"],
+        key="fav_select",
+    )
+    if st.sidebar.button("Load selected"):
+        st.session_state["ticker_prefill"] = selected_fav
+else:
+    st.sidebar.caption("No favourites yet. Add from the main view.")
+
 st.write("Enter a stock ticker to see historical data (up to 10 years) and an experimental outlook.")
 
-ticker = st.text_input("Ticker symbol", value="AAPL")
+default_ticker = st.session_state.get("ticker_prefill", "AAPL")
+ticker = st.text_input("Ticker symbol", value=default_ticker)
 
 period = st.selectbox(
     "History period",
@@ -171,6 +257,21 @@ if st.button("Get data"):
                     # Moving averages
                     data["MA20"] = prices.rolling(window=20).mean()
                     data["MA50"] = prices.rolling(window=50).mean()
+
+                    # --- Favourite controls ---
+                    current_symbol = ticker.strip().upper()
+                    fav_list = st.session_state["favourites"]
+                    is_fav = current_symbol in fav_list
+
+                    fav_col1, fav_col2 = st.columns(2)
+                    with fav_col1:
+                        if not is_fav and st.button("Add to favourites"):
+                            fav_list.append(current_symbol)
+                            st.session_state["favourites"] = sorted(set(fav_list))
+                    with fav_col2:
+                        if is_fav and st.button("Remove from favourites"):
+                            fav_list = [s for s in fav_list if s != current_symbol]
+                            st.session_state["favourites"] = fav_list
 
                     # --- Chart and stats ---
                     st.subheader(f"Price history for {ticker.upper()} ({period})")

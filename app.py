@@ -15,6 +15,10 @@ st.set_page_config(
     layout="wide",
 )
 
+# ---------------- Constants (put your real NewsAPI key here) ----------------
+
+NEWSAPI_KEY = "YOUR_NEWSAPI_KEY_HERE"  # all users will use this key
+
 # ---------------- Session init ----------------
 
 if "favourites" not in st.session_state:
@@ -114,89 +118,17 @@ def fetch_yahoo_data(ticker: str, period: str) -> pd.DataFrame:
     return data
 
 
-def fetch_alpha_vantage_data(ticker: str, period: str, api_key: str) -> pd.DataFrame:
-    # Approximate trading days per period. [web:418]
-    period_to_days = {
-        "1mo": 22,
-        "3mo": 66,
-        "6mo": 132,
-        "1y": 252,
-        "5y": 252 * 5,
-        "10y": 252 * 10,
-    }
-    days = period_to_days.get(period, 252)
-    outputsize = "compact" if days <= 252 else "full"
-
-    url = "https://www.alphavantage.co/query"
-    params = {
-        "function": "TIME_SERIES_DAILY_ADJUSTED",
-        "symbol": ticker.strip(),
-        "apikey": api_key,
-        "outputsize": outputsize,
-        "datatype": "json",
-    }
-
-    resp = requests.get(url, params=params, timeout=10)
-    resp.raise_for_status()
-    raw = resp.json()
-
-    if "Time Series (Daily)" not in raw:
-        raise ValueError(
-            f"Alpha Vantage error or limit hit: "
-            f"{raw.get('Note') or raw.get('Error Message') or 'unknown error'}"
-        )
-
-    ts = raw["Time Series (Daily)"]
-
-    df = pd.DataFrame.from_dict(ts, orient="index", dtype=float)
-    df.index = pd.to_datetime(df.index)
-    df.sort_index(inplace=True)
-
-    df.rename(
-        columns={
-            "1. open": "Open",
-            "2. high": "High",
-            "3. low": "Low",
-            "4. close": "Close",
-            "5. adjusted close": "Adj Close",
-            "6. volume": "Volume",
-        },
-        inplace=True,
-    )
-
-    return df.tail(days)
-
-
 def get_best_price_data(ticker: str, period: str) -> tuple[pd.DataFrame, str]:
-    errors = []
+    data = fetch_yahoo_data(ticker, period)
+    if not data.empty:
+        return data, "Yahoo Finance"
+    raise RuntimeError("No data from Yahoo Finance.")
 
-    # Try Yahoo first
-    try:
-        data = fetch_yahoo_data(ticker, period)
-        if not data.empty:
-            return data, "Yahoo Finance"
-    except Exception as e:
-        errors.append(f"Yahoo: {e}")
-
-    # Then Alpha Vantage
-    try:
-        alpha_key = st.secrets["alphavantage"]["api_key"]
-        data = fetch_alpha_vantage_data(ticker, period, alpha_key)
-        if not data.empty:
-            return data, "Alpha Vantage"
-    except Exception as e:
-        errors.append(f"Alpha Vantage: {e}")
-
-    raise RuntimeError("All data providers failed: " + " | ".join(errors))
-
-# ---------------- News helper (NewsAPI.org via secrets) ----------------
-# Uses NewsAPI Everything endpoint. [web:438][web:443]
+# ---------------- News helper (NewsAPI.org, shared key) ----------------
 
 def get_stock_news(ticker: str, max_articles: int = 5) -> list[dict]:
-    try:
-        api_key = st.secrets["newsapi"]["api_key"]
-    except Exception as e:
-        st.caption(f"News configuration error: {e}")
+    if not NEWSAPI_KEY:
+        st.caption("NewsAPI key is not configured in the app code.")
         return []
 
     url = "https://newsapi.org/v2/everything"
@@ -205,8 +137,8 @@ def get_stock_news(ticker: str, max_articles: int = 5) -> list[dict]:
         "language": "en",
         "sortBy": "publishedAt",
         "pageSize": max_articles,
-        "apiKey": api_key,
-    }
+        "apiKey": NEWSAPI_KEY,
+    }  # [web:438]
     try:
         resp = requests.get(url, params=params, timeout=10)
         resp.raise_for_status()
@@ -273,7 +205,7 @@ if st.button("Get data", key="get_data"):
                 price_col = "Close" if "Close" in data.columns else "Adj Close"
                 prices = data[price_col].dropna()
                 if prices.empty:
-                    st.error("Price data is empty from all providers.")
+                    st.error("Price data is empty from the provider.")
                 else:
                     last_close = prices.iloc[-1]
 
@@ -309,7 +241,7 @@ if st.button("Get data", key="get_data"):
 
                     # Main chart + stats
                     st.subheader(f"Price history for {ticker.upper()} ({period})")
-                    st.caption(f"Data source selected automatically: {source_name}")
+                    st.caption(f"Data source: {source_name}")
 
                     plot_cols = [c for c in [price_col, "MA20", "MA50"] if c in data.columns]
                     st.line_chart(data[plot_cols])
@@ -376,4 +308,4 @@ if st.button("Get data", key="get_data"):
                             st.markdown("---")
 
         except Exception as e:
-            st.error(f"Unable to fetch data from available providers: {e}")
+            st.error(f"Unable to fetch data: {e}")

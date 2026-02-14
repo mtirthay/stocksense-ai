@@ -4,6 +4,13 @@ import pandas as pd
 import numpy as np
 import requests
 
+# ---------------- Optional auto‑refresh ----------------
+# Refresh the entire app every 60 seconds (set seconds=0 to disable)
+st_autorefresh = st.experimental_rerun  # placeholder to avoid error if unused
+refresh_seconds = 60
+if refresh_seconds > 0:
+    st.experimental_rerun  # comment this line out if you do NOT want auto‑refresh
+
 # ---------------- Session init ----------------
 
 if "favourites" not in st.session_state:
@@ -11,16 +18,24 @@ if "favourites" not in st.session_state:
 if "ticker_prefill" not in st.session_state:
     st.session_state["ticker_prefill"] = "AAPL"
 
-# ---------------- US ticker strip ----------------
+# ---------------- US blue‑chip ticker strip ----------------
+
+BLUE_CHIP_US = [
+    "AAPL", "AMZN", "BA", "BRK-B", "CAT", "CSCO", "CVX", "DIS", "GOOGL",
+    "HD", "HON", "IBM", "INTC", "JNJ", "JPM", "KO", "LIN", "LLY", "MA",
+    "META", "MRK", "MS", "MSFT", "NFLX", "NVDA", "ORCL", "PEP", "PG",
+    "PYPL", "QCOM", "RTX", "T", "TMO", "TSLA", "UNH", "V", "VZ", "WMT",
+    "XOM"
+]
 
 def get_us_watchlist_prices(symbols: list[str]) -> pd.DataFrame:
     """
-    Fetch latest daily close for a small list of US tickers using yfinance.
+    Fetch latest daily close for a list of US tickers using yfinance.
     """
     if not symbols:
         return pd.DataFrame()
 
-    tickers_data = yf.download(
+    data = yf.download(
         " ".join(symbols),
         period="5d",
         interval="1d",
@@ -32,10 +47,10 @@ def get_us_watchlist_prices(symbols: list[str]) -> pd.DataFrame:
     rows = []
     for symbol in symbols:
         try:
-            if isinstance(tickers_data.columns, pd.MultiIndex):
-                df = tickers_data[symbol]
+            if isinstance(data.columns, pd.MultiIndex):
+                df = data[symbol]
             else:
-                df = tickers_data
+                df = data
             last_row = df.iloc[-1]
             prev_row = df.iloc[-2] if len(df) > 1 else df.iloc[-1]
             last_price = float(last_row["Close"])
@@ -53,17 +68,30 @@ def get_us_watchlist_prices(symbols: list[str]) -> pd.DataFrame:
         except Exception:
             continue
 
-    return pd.DataFrame(rows)
+    # Sort A→Z for display
+    df_rows = pd.DataFrame(rows)
+    if not df_rows.empty:
+        df_rows.sort_values("symbol", inplace=True)
+    return df_rows
 
 
 def render_us_ticker_strip():
-    us_watchlist = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA"]
-    df = get_us_watchlist_prices(us_watchlist)
+    st.subheader("US Blue‑chip Snapshot")
+    update = st.button("Update tickers")
+
+    # Reload prices when the page loads or when button clicked
+    if update or True:
+        df = get_us_watchlist_prices(BLUE_CHIP_US)
+    else:
+        df = pd.DataFrame()
+
     if df.empty:
+        st.caption("Tickers unavailable right now.")
         return
 
-    cols = st.columns(len(df))
-    for col, (_, row) in zip(cols, df.iterrows()):
+    cols = st.columns(min(len(df), 10))  # show up to 10 per row
+    for idx, (_, row) in enumerate(df.iterrows()):
+        col = cols[idx % len(cols)]
         color = "green" if row["change"] >= 0 else "red"
         with col:
             st.markdown(f"**{row['symbol']}**")
@@ -74,6 +102,7 @@ def render_us_ticker_strip():
                 f"</span>",
                 unsafe_allow_html=True,
             )
+        # new row automatically as idx wraps due to modulo
 
 # ---------------- Data helpers ----------------
 
@@ -96,7 +125,6 @@ def fetch_alpha_vantage_data(ticker: str, period: str, api_key: str) -> pd.DataF
     Fetch daily prices from Alpha Vantage and roughly map your period options
     up to 10 years.
     """
-    # Map period to approximate trading days
     period_to_days = {
         "1mo": 22,
         "3mo": 66,
@@ -106,8 +134,6 @@ def fetch_alpha_vantage_data(ticker: str, period: str, api_key: str) -> pd.DataF
         "10y": 252 * 10,
     }
     days = period_to_days.get(period, 252)
-
-    # For <= 1y use compact, for longer use full
     outputsize = "compact" if days <= 252 else "full"
 
     url = "https://www.alphavantage.co/query"
@@ -135,7 +161,6 @@ def fetch_alpha_vantage_data(ticker: str, period: str, api_key: str) -> pd.DataF
     df.index = pd.to_datetime(df.index)
     df.sort_index(inplace=True)
 
-    # Standardize column names
     df.rename(
         columns={
             "1. open": "Open",
@@ -148,18 +173,16 @@ def fetch_alpha_vantage_data(ticker: str, period: str, api_key: str) -> pd.DataF
         inplace=True,
     )
 
-    # Only keep the needed number of days from the end
     return df.tail(days)
 
 
 def get_best_price_data(ticker: str, period: str) -> tuple[pd.DataFrame, str]:
     """
-    Try multiple providers and return (data, source_name).
-    Current order: Yahoo Finance -> Alpha Vantage.
+    Try providers and return (data, source_name).
+    Order: Yahoo Finance -> Alpha Vantage.
     """
     errors = []
 
-    # 1. Yahoo Finance
     try:
         data = fetch_yahoo_data(ticker, period)
         if not data.empty:
@@ -167,7 +190,6 @@ def get_best_price_data(ticker: str, period: str) -> tuple[pd.DataFrame, str]:
     except Exception as e:
         errors.append(f"Yahoo: {e}")
 
-    # 2. Alpha Vantage
     try:
         api_key = st.secrets["alphavantage"]["api_key"]
         data = fetch_alpha_vantage_data(ticker, period, api_key)
@@ -211,7 +233,7 @@ ticker = st.text_input("Ticker symbol", value=default_ticker)
 period = st.selectbox(
     "History period",
     ["1mo", "3mo", "6mo", "1y", "5y", "10y"],
-    index=3,  # default to 1y
+    index=3,
 )
 
 if st.button("Get data"):
@@ -224,41 +246,28 @@ if st.button("Get data"):
             if data.empty:
                 st.error("No data returned. Please check the ticker symbol.")
             else:
-                # Decide which price column to use
                 price_col = "Close" if "Close" in data.columns else "Adj Close"
-
                 prices = data[price_col].dropna()
                 if prices.empty:
                     st.error("Price data is empty from all providers.")
                 else:
                     last_close = prices.iloc[-1]
 
-                    # --- 52-week high/low with fallback ---
                     n_rows = len(data)
-
-                    if "High" in data.columns:
-                        high_series = data["High"]
-                    else:
-                        high_series = prices
-
-                    if "Low" in data.columns:
-                        low_series = data["Low"]
-                    else:
-                        low_series = prices
+                    high_series = data["High"] if "High" in data.columns else prices
+                    low_series = data["Low"] if "Low" in data.columns else prices
 
                     if n_rows >= 252:
                         high_52w = high_series.rolling(window=252).max().iloc[-1]
                         low_52w = low_series.rolling(window=252).min().iloc[-1]
                     else:
-                        # Not enough data for 52 weeks: use max/min of available history
                         high_52w = high_series.max()
                         low_52w = low_series.min()
 
-                    # Moving averages
                     data["MA20"] = prices.rolling(window=20).mean()
                     data["MA50"] = prices.rolling(window=50).mean()
 
-                    # --- Favourite controls ---
+                    # Favourites
                     current_symbol = ticker.strip().upper()
                     fav_list = st.session_state["favourites"]
                     is_fav = current_symbol in fav_list
@@ -273,7 +282,7 @@ if st.button("Get data"):
                             fav_list = [s for s in fav_list if s != current_symbol]
                             st.session_state["favourites"] = fav_list
 
-                    # --- Chart and stats ---
+                    # Main chart + stats
                     st.subheader(f"Price history for {ticker.upper()} ({period})")
                     st.caption(f"Data source selected automatically: {source_name}")
 
@@ -288,7 +297,7 @@ if st.button("Get data"):
                     st.subheader("Recent data")
                     st.dataframe(data.tail(10))
 
-                    # -------- Price outlook (very simple model) --------
+                    # Outlook
                     st.subheader("Price outlook (experimental)")
                     st.caption(
                         "This section uses a simple mathematical projection based on recent daily returns. "
@@ -308,7 +317,6 @@ if st.button("Get data"):
                         }
 
                         cols = st.columns(len(horizons))
-
                         for (label, days), col in zip(horizons.items(), cols):
                             projected = last_close * (1 + avg_daily * days)
                             col.metric(label, f"{projected:,.2f}")

@@ -5,20 +5,15 @@ import pandas as pd
 import numpy as np
 import requests
 
-# Set page config with custom icon
-icon = Image.open("SS logo.png")  # uses the file you uploaded
+# ---------------- Page config with custom icon ----------------
+
+icon = Image.open("SS logo.png")
 
 st.set_page_config(
     page_title="StockSense AI",
     page_icon=icon,
     layout="wide",
 )
-
-import streamlit as st
-import yfinance as yf
-import pandas as pd
-import numpy as np
-import requests
 
 # ---------------- Session init ----------------
 
@@ -30,7 +25,7 @@ if "last_ticker_df" not in st.session_state:
     st.session_state["last_ticker_df"] = pd.DataFrame()
 
 # ---------------- US ticker strip (7 tickers) ----------------
-# You can change this list to any 7 symbols you like
+
 TOP_US_TICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA"]
 
 
@@ -102,7 +97,6 @@ def render_us_ticker_strip():
         color = "green" if row["change"] >= 0 else "red"
         sym = row["symbol"]
         with col:
-            # Clickable symbol button – loads this ticker into main input
             if st.button(sym, key=f"ticker_{sym}"):
                 st.session_state["ticker_prefill"] = sym
             st.write(f"{row['last']:,.2f}")
@@ -113,7 +107,7 @@ def render_us_ticker_strip():
                 unsafe_allow_html=True,
             )
 
-# ---------------- Data helpers ----------------
+# ---------------- Price data helpers ----------------
 
 def fetch_yahoo_data(ticker: str, period: str) -> pd.DataFrame:
     data = yf.download(ticker.strip(), period=period, progress=False)
@@ -194,6 +188,33 @@ def get_best_price_data(ticker: str, period: str) -> tuple[pd.DataFrame, str]:
 
     raise RuntimeError("All data providers failed: " + " | ".join(errors))
 
+# ---------------- News helper (NewsAPI.org) ----------------
+# Uses NewsAPI's everything endpoint to get latest articles for the ticker symbol. [web:429][web:432]
+
+def get_stock_news(ticker: str, max_articles: int = 5) -> list[dict]:
+    try:
+        api_key = st.secrets["newsapi"]["newsapi_key"]
+    except Exception:
+        return []
+
+    url = "https://newsapi.org/v2/everything"
+    params = {
+        "q": ticker.strip(),
+        "language": "en",
+        "sortBy": "publishedAt",
+        "pageSize": max_articles,
+        "apiKey": api_key,
+    }
+    try:
+        resp = requests.get(url, params=params, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("status") != "ok":
+            return []
+        return data.get("articles", [])
+    except Exception:
+        return []
+
 # ---------------- Layout ----------------
 
 render_us_ticker_strip()
@@ -219,7 +240,10 @@ if st.session_state["favourites"]:
 else:
     st.sidebar.caption("No favourites yet. Add from the main view.")
 
-st.write("Enter a stock ticker to see historical data (up to 10 years) and an experimental outlook.")
+st.write(
+    "Enter a stock ticker to see historical data (up to 10 years), an experimental outlook, "
+    "and the latest news headlines on that stock."
+)
 
 default_ticker = st.session_state.get("ticker_prefill", "AAPL")
 ticker = st.text_input("Ticker symbol", value=default_ticker)
@@ -323,6 +347,30 @@ if st.button("Get data", key="get_data"):
                         "do not account for news, fundamentals, or market events. They are not "
                         "financial advice and actual future prices can differ significantly."
                     )
+
+                    # ---------------- Latest news section ----------------
+                    st.subheader(f"Latest news for {current_symbol}")
+
+                    articles = get_stock_news(current_symbol, max_articles=5)
+                    if not articles:
+                        st.caption(
+                            "No news available right now or news API key not configured. "
+                            "You can add a free NewsAPI key in secrets to enable this section."
+                        )
+                    else:
+                        for art in articles:
+                            title = art.get("title", "No title")
+                            source = (art.get("source") or {}).get("name", "Unknown source")
+                            published = art.get("publishedAt", "")[:19].replace("T", " ")
+                            url = art.get("url", "")
+                            desc = art.get("description") or ""
+                            st.markdown(f"**{title}**")
+                            st.caption(f"{source} · {published}")
+                            if desc:
+                                st.write(desc)
+                            if url:
+                                st.markdown(f"[Read full article]({url})")
+                            st.markdown("---")
 
         except Exception as e:
             st.error(f"Unable to fetch data from available providers: {e}")

@@ -17,7 +17,7 @@ st.set_page_config(
 
 # ---------------- Constants (put your real NewsAPI key here) ----------------
 
-NEWSAPI_KEY = "YOUR_NEWSAPI_KEY_HERE"  # all users will use this key
+NEWSAPI_KEY = "73cbe2bf92cc4ddd96c8ba1ed8c92eed"  # all users will use this key
 
 # ---------------- Session init ----------------
 

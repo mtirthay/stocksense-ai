@@ -117,6 +117,7 @@ def fetch_yahoo_data(ticker: str, period: str) -> pd.DataFrame:
 
 
 def fetch_alpha_vantage_data(ticker: str, period: str, api_key: str) -> pd.DataFrame:
+    # Approx days for each period, based on trading days per year. [web:418]
     period_to_days = {
         "1mo": 22,
         "3mo": 66,
@@ -189,12 +190,13 @@ def get_best_price_data(ticker: str, period: str) -> tuple[pd.DataFrame, str]:
     raise RuntimeError("All data providers failed: " + " | ".join(errors))
 
 # ---------------- News helper (NewsAPI.org) ----------------
-# Uses NewsAPI's everything endpoint to get latest articles for the ticker symbol. [web:429][web:432]
+# Uses NewsAPI's everything endpoint to get latest articles. [web:429][web:432]
 
 def get_stock_news(ticker: str, max_articles: int = 5) -> list[dict]:
     try:
         api_key = st.secrets["newsapi"]["newsapi_key"]
-    except Exception:
+    except Exception as e:
+        st.caption(f"News configuration error: {e}")
         return []
 
     url = "https://newsapi.org/v2/everything"
@@ -209,10 +211,14 @@ def get_stock_news(ticker: str, max_articles: int = 5) -> list[dict]:
         resp = requests.get(url, params=params, timeout=10)
         resp.raise_for_status()
         data = resp.json()
+
         if data.get("status") != "ok":
+            st.caption(f"NewsAPI error: {data.get('code', '')} {data.get('message', '')}")
             return []
+
         return data.get("articles", [])
-    except Exception:
+    except Exception as e:
+        st.caption(f"News request failed: {e}")
         return []
 
 # ---------------- Layout ----------------
@@ -353,10 +359,7 @@ if st.button("Get data", key="get_data"):
 
                     articles = get_stock_news(current_symbol, max_articles=5)
                     if not articles:
-                        st.caption(
-                            "No news available right now or news API key not configured. "
-                            "You can add a free NewsAPI key in secrets to enable this section."
-                        )
+                        st.caption("No news articles returned for this query.")
                     else:
                         for art in articles:
                             title = art.get("title", "No title")

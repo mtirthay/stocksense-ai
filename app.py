@@ -15,9 +15,6 @@ st.set_page_config(
     layout="wide",
 )
 
-# Debug: show which secret sections are available
-st.write("Secrets sections:", list(st.secrets.keys()))
-
 # ---------------- Session init ----------------
 
 if "favourites" not in st.session_state:
@@ -33,9 +30,7 @@ TOP_US_TICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA"]
 
 
 def get_us_watchlist_prices(symbols: list[str]) -> pd.DataFrame:
-    """
-    Fetch latest daily close for a list of US tickers using yfinance.
-    """
+    """Fetch latest daily close for a list of US tickers using yfinance."""
     if not symbols:
         return pd.DataFrame()
 
@@ -120,7 +115,7 @@ def fetch_yahoo_data(ticker: str, period: str) -> pd.DataFrame:
 
 
 def fetch_alpha_vantage_data(ticker: str, period: str, api_key: str) -> pd.DataFrame:
-    # Approx days for each period (trading days). [web:418]
+    # Approximate trading days per period. [web:418]
     period_to_days = {
         "1mo": 22,
         "3mo": 66,
@@ -175,6 +170,7 @@ def fetch_alpha_vantage_data(ticker: str, period: str, api_key: str) -> pd.DataF
 def get_best_price_data(ticker: str, period: str) -> tuple[pd.DataFrame, str]:
     errors = []
 
+    # Try Yahoo first
     try:
         data = fetch_yahoo_data(ticker, period)
         if not data.empty:
@@ -182,9 +178,10 @@ def get_best_price_data(ticker: str, period: str) -> tuple[pd.DataFrame, str]:
     except Exception as e:
         errors.append(f"Yahoo: {e}")
 
+    # Then Alpha Vantage
     try:
-        api_key = st.secrets["alphavantage"]["api_key"]
-        data = fetch_alpha_vantage_data(ticker, period, api_key)
+        alpha_key = st.secrets["alphavantage"]["api_key"]
+        data = fetch_alpha_vantage_data(ticker, period, alpha_key)
         if not data.empty:
             return data, "Alpha Vantage"
     except Exception as e:
@@ -192,8 +189,8 @@ def get_best_price_data(ticker: str, period: str) -> tuple[pd.DataFrame, str]:
 
     raise RuntimeError("All data providers failed: " + " | ".join(errors))
 
-# ---------------- News helper (NewsAPI.org) ----------------
-# Uses [newsapi].api_key from secrets. [web:429][web:432]
+# ---------------- News helper (NewsAPI.org via secrets) ----------------
+# Uses NewsAPI Everything endpoint. [web:438][web:443]
 
 def get_stock_news(ticker: str, max_articles: int = 5) -> list[dict]:
     try:

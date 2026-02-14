@@ -1,3 +1,19 @@
+from PIL import Image
+import streamlit as st
+import yfinance as yf
+import pandas as pd
+import numpy as np
+import requests
+
+# Set page config with custom icon
+icon = Image.open("SS logo.png")  # uses the file you uploaded
+
+st.set_page_config(
+    page_title="StockSense AI",
+    page_icon=icon,
+    layout="wide",
+)
+
 import streamlit as st
 import yfinance as yf
 import pandas as pd
